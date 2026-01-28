@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="chat-page">
+  <div class="app">
+    <div id="inbox"></div>
+
+    <div class="chat">
+      <div class="chat-header" id="chatHeader">
+        Select a conversation
+      </div>
+      <div id="messages"></div>
+      <input id="msg" placeholder="Type a message..." onkeydown="send(event)">
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="client.js"></script>
+</body>
+
+</html>

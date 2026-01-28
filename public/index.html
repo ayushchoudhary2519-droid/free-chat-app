@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <h2>Free Chat</h2>
+
+    <input id="username" placeholder="Username">
+    <input id="password" type="password" placeholder="Password">
+    <button onclick="login()">Enter</button>
+
+    <p id="error"></p>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    function login() {
+      socket.emit("login", {
+        username: username.value,
+        password: password.value
+      }, res => {
+        if (!res.ok) error.textContent = res.error;
+        else {
+          localStorage.setItem("me", username.value);
+          location.href = "chat.html";
+        }
+      });
+    }
+  </script>
+</body>
+
+</html>
