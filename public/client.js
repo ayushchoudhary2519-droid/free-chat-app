@@ -1,5 +1,8 @@
 window.lastUsers = [];
-const socket = io({ autoConnect: false });
+const socket = io({
+  transports: ["websocket"]
+});
+
 const me = localStorage.getItem("me");
 
 const inbox = document.getElementById("inbox");
