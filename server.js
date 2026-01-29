@@ -1,8 +1,7 @@
+
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const crypto = require("crypto");
-const Database = require("better-sqlite3");
 
 const app = express();
 const server = http.createServer(app);
@@ -10,126 +9,92 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
-/* ================= DATABASE ================= */
-const db = new Database("chat.db");
+/*
+  In-memory state
+*/
+const users = {};   // username -> socket.id
+const sockets = {}; // socket.id -> username
+const messages = {}; // "a|b" -> [{from,to,text,time}]
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS users (
-  username TEXT PRIMARY KEY,
-  password TEXT
-)`).run();
+function convoKey(a, b) {
+  return [a, b].sort().join("|");
+}
 
-db.prepare(`
-CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  fromUser TEXT,
-  toUser TEXT,
-  text TEXT,
-  time TEXT,
-  read INTEGER,
-  readTime TEXT
-)`).run();
+function broadcastUsers() {
+  io.emit(
+    "userList",
+    Object.keys(users) // array of usernames
+  );
+}
 
-/* ================= HELPERS ================= */
-const hash = p =>
-  crypto.createHash("sha256").update(p).digest("hex");
-
-/* ================= STATE ================= */
-const sockets = {};
-const lastSeen = {};
-
-/* ================= SOCKET ================= */
 io.on("connection", socket => {
-  let me = null;
+  console.log("connected:", socket.id);
 
-  socket.on("login", ({ username, password }, cb) => {
-    const user = db
-      .prepare("SELECT * FROM users WHERE username=?")
-      .get(username);
+  // SEND CURRENT USERS TO NEW CLIENT
+  socket.emit("userList", Object.keys(users));
 
-    if (!user) {
-      db.prepare(
-        "INSERT INTO users VALUES (?,?)"
-      ).run(username, hash(password));
-    } else if (user.password !== hash(password)) {
-      return cb({ ok: false });
-    }
+  // ---------- LOGIN ----------
+  socket.on("login", (username, cb) => {
+    if (!username) return;
 
-    me = username;
-    sockets[me] = socket;
-    delete lastSeen[me];
+    users[username] = socket.id;
+    sockets[socket.id] = username;
+
+    console.log("login:", username);
 
     cb({ ok: true });
     broadcastUsers();
   });
 
+  // ---------- SEND MESSAGE ----------
   socket.on("sendMessage", ({ to, text }) => {
-    if (!me || !text) return;
+    const from = sockets[socket.id];
+    if (!from || !to || !text) return;
 
-    const time = new Date().toISOString();
-
-    db.prepare(`
-      INSERT INTO messages 
-      (fromUser,toUser,text,time,read,readTime)
-      VALUES (?,?,?,?,0,NULL)
-    `).run(me, to, text, time);
+    const key = convoKey(from, to);
+    if (!messages[key]) messages[key] = [];
 
     const msg = {
-      fromUser: me,
-      toUser: to,
+      from,
+      to,
       text,
-      time,
-      read: 0,
-      readTime: null
+      time: Date.now()
     };
 
-    if (sockets[to]) sockets[to].emit("message", msg);
+    messages[key].push(msg);
+
+    // send to receiver
+    if (users[to]) {
+      io.to(users[to]).emit("message", msg);
+    }
+
+    // echo back to sender
     socket.emit("message", msg);
   });
 
+  // ---------- LOAD HISTORY ----------
   socket.on("loadMessages", (other, cb) => {
-    const rows = db.prepare(`
-      SELECT * FROM messages
-      WHERE (fromUser=? AND toUser=?)
-         OR (fromUser=? AND toUser=?)
-      ORDER BY id
-    `).all(me, other, other, me);
+    const me = sockets[socket.id];
+    if (!me || !other) return cb([]);
 
-    cb(rows);
+    const key = convoKey(me, other);
+    cb(messages[key] || []);
   });
 
-  socket.on("read", other => {
-    const readTime = new Date().toISOString();
-
-    db.prepare(`
-      UPDATE messages
-      SET read=1, readTime=?
-      WHERE fromUser=? AND toUser=? AND read=0
-    `).run(readTime, other, me);
-
-    if (sockets[other]) {
-      sockets[other].emit("read", { by: me });
-    }
-  });
-
+  // ---------- DISCONNECT ----------
   socket.on("disconnect", () => {
-    if (me) {
-      lastSeen[me] = new Date().toISOString();
-      delete sockets[me];
-      broadcastUsers();
-    }
+    const me = sockets[socket.id];
+    if (!me) return;
+
+    delete sockets[socket.id];
+    delete users[me];
+
+    console.log("disconnect:", me);
+    broadcastUsers();
   });
 });
 
-/* ================= USERS ================= */
-function broadcastUsers() {
-  io.emit("userList", {
-    online: Object.keys(sockets),
-    lastSeen
-  });
-}
-
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () =>
-  console.log("Server running on", PORT)
-);
+server.listen(PORT, () => {
+  console.log("Server running on port", PORT);
+});

@@ -17,20 +17,22 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io();
-    function login() {
-      socket.emit("login", {
-        username: username.value,
-        password: password.value
-      }, res => {
-        if (!res.ok) error.textContent = res.error;
-        else {
-          localStorage.setItem("me", username.value);
-          location.href = "chat.html";
-        }
-      });
+  function login() {
+    const username = document.getElementById("username").value.trim();
+
+    if (!username) {
+      alert("Enter a username");
+      return;
     }
-  </script>
+
+    // 🔴 THIS WAS MISSING / BROKEN
+    localStorage.setItem("me", username);
+
+    // go to chat
+    window.location.href = "/chat.html";
+  }
+</script>
+
 </body>
 
 </html>

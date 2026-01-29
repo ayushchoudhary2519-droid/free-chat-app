@@ -1,132 +1,88 @@
-const me = localStorage.getItem("me");
-const password = localStorage.getItem("password");
+const socket = io();
 
-if (!me || !password) {
+const me = localStorage.getItem("me");
+if (!me) {
   location.href = "/";
 }
-
-socket.emit("login", { username: me, password }, res => {
-  if (!res.ok) {
-    alert("Login failed");
-    localStorage.clear();
-    location.href = "/";
-  }
-});
-
-const socket = io({ transports: ["websocket"] });
-
 
 const inbox = document.getElementById("inbox");
 const messagesDiv = document.getElementById("messages");
 const header = document.getElementById("chatHeader");
-const input = document.getElementById("msg");
+const msgInput = document.getElementById("msg");
 
 let currentChat = null;
-let state = { online: [], lastSeen: {} };
 
-/* ================= USERS ================= */
-socket.on("userList", data => {
-  state = data;
+// ---------- LOGIN ----------
+socket.emit("login", me, res => {
+  if (!res.ok) {
+    alert("Login failed");
+    location.href = "/";
+  }
+});
+
+// ---------- USER LIST ----------
+socket.on("userList", users => {
   inbox.innerHTML = "";
 
-  [...new Set([...data.online, ...Object.keys(data.lastSeen)])]
-    .filter(u => u !== me)
-    .forEach(u => {
+  users
+    .filter(name => name !== me)
+    .forEach(name => {
       const div = document.createElement("div");
       div.className = "inbox-user";
-      if (u === currentChat) div.classList.add("active");
+      if (name === currentChat) div.classList.add("active");
 
-      div.innerHTML = `
-        <div class="name">${u}</div>
-        <div class="status">
-          ${data.online.includes(u)
-            ? "Online"
-            : `Last seen ${new Date(data.lastSeen[u]).toLocaleTimeString()}`
-          }
-        </div>
-      `;
+      div.textContent = name;
+      div.onclick = () => openChat(name);
 
-      div.onclick = () => openChat(u);
       inbox.appendChild(div);
     });
 });
 
-/* ================= CHAT ================= */
+// ---------- OPEN CHAT ----------
 function openChat(user) {
   currentChat = user;
+  header.textContent = user;
   messagesDiv.innerHTML = "";
-
-  header.innerHTML = `
-    <div>${user}</div>
-    <div class="status">
-      ${state.online.includes(user)
-        ? "Online"
-        : "Offline"}
-    </div>
-  `;
 
   socket.emit("loadMessages", user, msgs => {
     msgs.forEach(showMessage);
-    socket.emit("read", user);
   });
 }
 
-/* ================= SEND ================= */
+// ---------- SEND ----------
 function send(e) {
-  if (e.key === "Enter" && input.value && currentChat) {
+  if (e.key === "Enter" && msgInput.value && currentChat) {
     socket.emit("sendMessage", {
       to: currentChat,
-      text: input.value
+      text: msgInput.value
     });
-    input.value = "";
+    msgInput.value = "";
   }
 }
 
-/* ================= RECEIVE ================= */
+// ---------- RECEIVE ----------
 socket.on("message", msg => {
   if (
-    msg.fromUser === currentChat ||
-    msg.toUser === currentChat
+    msg.from === currentChat ||
+    msg.to === currentChat
   ) {
     showMessage(msg);
   }
 });
 
-/* ================= READ ================= */
-socket.on("read", ({ by }) => {
-  if (by === currentChat) {
-    socket.emit("loadMessages", currentChat, msgs => {
-      messagesDiv.innerHTML = "";
-      msgs.forEach(showMessage);
-    });
-  }
-});
-
-/* ================= UI ================= */
+// ---------- UI ----------
 function showMessage(m) {
   const bubble = document.createElement("div");
   bubble.className =
-    "message " + (m.fromUser === me ? "sent" : "received");
+    "message " + (m.from === me ? "sent" : "received");
 
-  bubble.innerText = m.text;
+  bubble.textContent = m.text;
 
   const meta = document.createElement("div");
   meta.className = "meta";
-
-  let time = new Date(m.time).toLocaleTimeString();
-
-  if (m.fromUser === me) {
-    meta.innerText =
-      `✓ ${time}` +
-      (m.read && m.readTime
-        ? `\n✓✓ ${new Date(m.readTime).toLocaleTimeString()}`
-        : "");
-  } else {
-    meta.innerText = time;
-  }
+  meta.textContent = new Date(m.time).toLocaleTimeString();
 
   bubble.appendChild(meta);
   messagesDiv.appendChild(bubble);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
-
