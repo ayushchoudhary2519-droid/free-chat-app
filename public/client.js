@@ -1,80 +1,67 @@
-/* ================== SOCKET ================== */
-const socket = io({
-  transports: ["websocket"]
+const me = localStorage.getItem("me");
+const password = localStorage.getItem("password");
+
+if (!me || !password) {
+  location.href = "/";
+}
+
+socket.emit("login", { username: me, password }, res => {
+  if (!res.ok) {
+    alert("Login failed");
+    localStorage.clear();
+    location.href = "/";
+  }
 });
 
-/* ================== STATE ================== */
-const me = localStorage.getItem("me");
+const socket = io({ transports: ["websocket"] });
+
 
 const inbox = document.getElementById("inbox");
 const messagesDiv = document.getElementById("messages");
 const header = document.getElementById("chatHeader");
-const msgInput = document.getElementById("msg");
+const input = document.getElementById("msg");
 
 let currentChat = null;
-let usersState = { online: [], lastSeen: {} };
-let isTabVisible = true;
+let state = { online: [], lastSeen: {} };
 
-/* ================== TAB VISIBILITY ================== */
-document.addEventListener("visibilitychange", () => {
-  isTabVisible = !document.hidden;
-
-  if (currentChat && isTabVisible) {
-    socket.emit("read", currentChat);
-  }
-});
-
-/* ================== USER LIST ================== */
+/* ================= USERS ================= */
 socket.on("userList", data => {
-  usersState = data;
+  state = data;
   inbox.innerHTML = "";
 
-  data.online.forEach(username => {
-    if (username === me) return;
+  [...new Set([...data.online, ...Object.keys(data.lastSeen)])]
+    .filter(u => u !== me)
+    .forEach(u => {
+      const div = document.createElement("div");
+      div.className = "inbox-user";
+      if (u === currentChat) div.classList.add("active");
 
-    const div = document.createElement("div");
-    div.className = "inbox-user";
-    if (username === currentChat) div.classList.add("active");
+      div.innerHTML = `
+        <div class="name">${u}</div>
+        <div class="status">
+          ${data.online.includes(u)
+            ? "Online"
+            : `Last seen ${new Date(data.lastSeen[u]).toLocaleTimeString()}`
+          }
+        </div>
+      `;
 
-    div.innerHTML = `
-      <div class="name">${username}</div>
-      <div class="status">Online</div>
-    `;
-
-    div.onclick = () => openChat(username);
-    inbox.appendChild(div);
-  });
-
-  Object.keys(data.lastSeen).forEach(username => {
-    if (username === me || data.online.includes(username)) return;
-
-    const div = document.createElement("div");
-    div.className = "inbox-user";
-
-    div.innerHTML = `
-      <div class="name">${username}</div>
-      <div class="status">
-        Last seen ${new Date(data.lastSeen[username]).toLocaleTimeString()}
-      </div>
-    `;
-
-    div.onclick = () => openChat(username);
-    inbox.appendChild(div);
-  });
+      div.onclick = () => openChat(u);
+      inbox.appendChild(div);
+    });
 });
 
-/* ================== OPEN CHAT ================== */
+/* ================= CHAT ================= */
 function openChat(user) {
   currentChat = user;
   messagesDiv.innerHTML = "";
 
-  const isOnline = usersState.online.includes(user);
-  const lastSeen = usersState.lastSeen[user];
-
   header.innerHTML = `
     <div>${user}</div>
     <div class="status">
-      ${isOnline ? "Online" : lastSeen ? `Last seen ${new Date(lastSeen).toLocaleTimeString()}` : ""}
+      ${state.online.includes(user)
+        ? "Online"
+        : "Offline"}
     </div>
   `;
 
@@ -84,38 +71,30 @@ function openChat(user) {
   });
 }
 
-/* ================== SEND MESSAGE ================== */
+/* ================= SEND ================= */
 function send(e) {
-  if (e.key === "Enter" && msgInput.value && currentChat) {
+  if (e.key === "Enter" && input.value && currentChat) {
     socket.emit("sendMessage", {
       to: currentChat,
-      text: msgInput.value
+      text: input.value
     });
-    msgInput.value = "";
+    input.value = "";
   }
 }
 
-/* ================== RECEIVE MESSAGE ================== */
+/* ================= RECEIVE ================= */
 socket.on("message", msg => {
   if (
-    msg.from === currentChat ||
-    msg.to === currentChat
+    msg.fromUser === currentChat ||
+    msg.toUser === currentChat
   ) {
     showMessage(msg);
   }
-
-  if (
-    msg.from === currentChat &&
-    msg.to === me &&
-    isTabVisible
-  ) {
-    socket.emit("read", msg.from);
-  }
 });
 
-/* ================== READ RECEIPT UPDATE ================== */
-socket.on("read", data => {
-  if (data.by === currentChat) {
+/* ================= READ ================= */
+socket.on("read", ({ by }) => {
+  if (by === currentChat) {
     socket.emit("loadMessages", currentChat, msgs => {
       messagesDiv.innerHTML = "";
       msgs.forEach(showMessage);
@@ -123,32 +102,31 @@ socket.on("read", data => {
   }
 });
 
-/* ================== UI ================== */
+/* ================= UI ================= */
 function showMessage(m) {
   const bubble = document.createElement("div");
-  bubble.classList.add(
-    "message",
-    m.fromUser === me ? "sent" : "received"
-  );
+  bubble.className =
+    "message " + (m.fromUser === me ? "sent" : "received");
 
-  bubble.textContent = m.text;
+  bubble.innerText = m.text;
 
   const meta = document.createElement("div");
   meta.className = "meta";
 
-  const sentTime = new Date(m.time).toLocaleTimeString();
+  let time = new Date(m.time).toLocaleTimeString();
 
   if (m.fromUser === me) {
     meta.innerText =
-      `✓ ${sentTime}` +
+      `✓ ${time}` +
       (m.read && m.readTime
         ? `\n✓✓ ${new Date(m.readTime).toLocaleTimeString()}`
         : "");
   } else {
-    meta.innerText = sentTime;
+    meta.innerText = time;
   }
 
   bubble.appendChild(meta);
   messagesDiv.appendChild(bubble);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
+
