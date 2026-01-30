@@ -13,7 +13,17 @@
         Select a conversation
       </div>
       <div id="messages"></div>
-      <input id="msg" placeholder="Type a message..." onkeydown="send(event)">
+      <div class="input-bar">
+  <input
+    id="msg"
+    placeholder="Type a message..."
+    onkeydown="send(event)"
+  />
+  <button id="sendBtn" onclick="sendClick()">
+    ➤
+  </button>
+</div>
+
     </div>
   </div>
 
